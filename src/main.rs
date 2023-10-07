@@ -35,6 +35,7 @@ struct Metadata<AT> {
 
     dg: Option<bool>,
     published: Option<bool>,
+    dg_path: Option<String>,
 }
 
 fn read_from_path(path: &str) -> String {
@@ -65,6 +66,7 @@ fn parse_file(content: String, filename: String) -> Page {
             Some(v) => Some(v[0].clone()),
             None => Some(String::from("")),
         },
+        dg_path: metadata.dg_path,
     };
     let page = Page::new(metadata, page_content.join("").to_string(), filename);
     page
@@ -78,24 +80,41 @@ fn has_file_diff(origin: &String, comparee: &String) -> bool {
     true
 }
 
+fn build_path(dg_path: String) -> String {
+    format!("./dist/{dg_path}")
+}
+
 fn check_update_need(page: &Page) -> bool {
-    let str_path = format!("./dist/{}", filename_to_destname(page.filename.clone()));
-    let dest_path = Path::new(&str_path);
-    let content = fs::read_to_string(dest_path);
+    if let Some(dg_path) = page.metadata.dg_path.clone() {
+        let str_path = build_path(dg_path);
 
-    match content {
-        Ok(c) => {
-            let has_diff = has_file_diff(&page.content, &c);
-            has_diff
+        if !Path::new(&str_path).is_dir() {
+            fs::create_dir_all(&str_path).expect(&format!(
+                "Error: Could not create a directory at \"{}\"",
+                str_path
+            ));
         }
-        Err(e) => {
-            if e.kind() == ErrorKind::NotFound {
-                return true;
+
+        let file_path = format!("{}/index.md", &str_path);
+        let dest_path = Path::new(&file_path);
+        let content = fs::read_to_string(dest_path);
+
+        return match content {
+            Ok(c) => {
+                let has_diff = has_file_diff(&page.content, &c);
+                has_diff
             }
+            Err(e) => {
+                if e.kind() == ErrorKind::NotFound {
+                    return true;
+                }
 
-            false
-        }
+                false
+            }
+        };
     }
+
+    false
 }
 
 fn filename_to_destname(filename: String) -> String {
@@ -103,10 +122,8 @@ fn filename_to_destname(filename: String) -> String {
                                                   // on each and every notes e.g. 202301011200__<Title Here> (_ = space)
 }
 
-fn write_update_to_file(filename: String, content: &str) {
-    let str_path = format!("./dist/{}", filename_to_destname(filename)); // here "dist" is
-                                                                         // arbitrary
-    let dest_path = Path::new(&str_path);
+fn write_update_to_file(str_path: &String, content: &str) {
+    let dest_path = Path::new(str_path);
     fs::write(dest_path, content).unwrap();
 }
 
@@ -123,7 +140,10 @@ fn check_and_update_file(filename: String) -> bool {
 
     if check_update_need(&page) {
         if dg && published {
-            write_update_to_file(page.filename, page.content.trim());
+            let dg_path = page.metadata.dg_path.unwrap();
+            let str_path = build_path(dg_path);
+            let file_path = format!("{}/index.md", &str_path);
+            write_update_to_file(&file_path, page.content.trim());
             return true;
         }
     }
